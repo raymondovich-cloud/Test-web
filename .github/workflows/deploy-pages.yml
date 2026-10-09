@@ -1,0 +1,65 @@
+# Version 1.0
+name: LifeGame Preview Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: lifegame-preview-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout preview repository
+        uses: actions/checkout@v4
+
+      - name: Checkout LifeGame test branch
+        uses: actions/checkout@v4
+        with:
+          repository: raymondovich-cloud/LifeGame
+          ref: feature/pwa-static-cache
+          path: lifegame-source
+
+      - name: Build preview artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd lifegame-source
+          rm -rf dist
+          mkdir -p dist
+          cp -R platforms/web/. dist/
+          cp -R source dist/source
+          find dist -type f \( -name "*.html" -o -name "*.js" \) -print0 |
+            xargs -0 sed -i \
+              -e 's#../../../source#../source#g' \
+              -e 's#../../source#./source#g'
+          touch dist/.nojekyll
+          echo "Preview source commit: $(git rev-parse HEAD)" > dist/PREVIEW_BUILD.txt
+          cd ..
+          mv lifegame-source/dist ./dist
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy preview to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
