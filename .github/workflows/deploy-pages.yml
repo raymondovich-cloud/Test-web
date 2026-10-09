@@ -1,10 +1,15 @@
-# Version 1.0
+# .github/workflows/deploy-pages.yml — Version 1.1
 name: LifeGame Preview Deploy
 
 on:
   push:
     branches:
       - main
+  repository_dispatch:
+    types:
+      - lifegame-preview
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -23,18 +28,20 @@ jobs:
       - name: Checkout preview repository
         uses: actions/checkout@v4
 
-      - name: Checkout LifeGame test branch
+      - name: Checkout LifeGame test source
         uses: actions/checkout@v4
         with:
           repository: raymondovich-cloud/LifeGame
-          ref: feature/pwa-static-cache
+          ref: ${{ github.event.client_payload.source_commit || 'feature/pwa-static-cache' }}
           path: lifegame-source
 
-      - name: Build preview artifact
+      - name: Build preview artifact with cache-busted assets
         shell: bash
         run: |
           set -euo pipefail
           cd lifegame-source
+          SOURCE_COMMIT="$(git rev-parse HEAD)"
+          BUILD_ID="$(git rev-parse --short=12 HEAD)"
           rm -rf dist
           mkdir -p dist
           cp -R platforms/web/. dist/
@@ -43,8 +50,46 @@ jobs:
             xargs -0 sed -i \
               -e 's#../../../source#../source#g' \
               -e 's#../../source#./source#g'
+
+          export BUILD_ID SOURCE_COMMIT
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          build_id = os.environ["BUILD_ID"]
+          source_commit = os.environ["SOURCE_COMMIT"]
+          asset_pattern = re.compile(
+              r'(?P<path>(?:https?:)?//[^"\'\s()]+|(?:\.\.?/|/)?[^"\'\s()=]+)\.(?P<ext>css|js)(?:\?[^"\'\s()]*)?',
+              re.IGNORECASE,
+          )
+
+          for file_path in Path("dist").rglob("*"):
+              if not file_path.is_file() or file_path.suffix.lower() not in {".html", ".css"}:
+                  continue
+              content = file_path.read_text(encoding="utf-8")
+              content = asset_pattern.sub(
+                  lambda match: f"{match.group('path')}.{match.group('ext').lower()}?v={build_id}",
+                  content,
+              )
+              if file_path.name == "index.html":
+                  content = re.sub(
+                      r"(<head\b[^>]*>)",
+                      lambda match: match.group(1) + f'\n    <meta name="lifegame-preview-build" content="{build_id}">',
+                      content,
+                      count=1,
+                      flags=re.IGNORECASE,
+                  )
+              file_path.write_text(content, encoding="utf-8")
+
+          Path("dist/PREVIEW_BUILD.txt").write_text(
+              f"Preview source commit: {source_commit}\n"
+              f"Preview build id: {build_id}\n"
+              f"Triggered by: {os.environ.get('GITHUB_EVENT_NAME', 'unknown')}\n",
+              encoding="utf-8",
+          )
+          PY
           touch dist/.nojekyll
-          echo "Preview source commit: $(git rev-parse HEAD)" > dist/PREVIEW_BUILD.txt
           cd ..
           mv lifegame-source/dist ./dist
 
