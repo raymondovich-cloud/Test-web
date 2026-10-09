@@ -1,4 +1,4 @@
-# .github/workflows/deploy-pages.yml — Version 1.1
+# .github/workflows/deploy-pages.yml — Version 1.2
 name: LifeGame Preview Deploy
 
 on:
@@ -73,14 +73,85 @@ jobs:
                   content,
               )
               if file_path.name == "index.html":
+                  preview_guard = r"""
+          <script>
+          (() => {
+            const marker = document.querySelector('meta[name="lifegame-preview-build"]');
+            if (!marker) return;
+
+            let checking = false;
+
+            async function checkPreviewBuild() {
+              if (checking || document.visibilityState === "hidden") return;
+              checking = true;
+
+              try {
+                const buildUrl = new URL("PREVIEW_BUILD.txt", window.location.href);
+                buildUrl.searchParams.set("_", String(Date.now()));
+                const response = await fetch(buildUrl.href, {
+                  cache: "no-store",
+                  headers: { "Cache-Control": "no-cache" }
+                });
+                if (!response.ok) return;
+
+                const text = await response.text();
+                const match = text.match(/^Preview build id:\s*([a-f0-9]+)/mi);
+                if (!match) return;
+
+                const latestBuild = match[1];
+                if (latestBuild === marker.content) return;
+
+                const params = new URLSearchParams(window.location.search);
+                if (params.get("lg-build") === latestBuild) return;
+
+                params.set("lg-build", latestBuild);
+                const nextUrl = new URL(window.location.href);
+                nextUrl.search = params.toString();
+                window.location.replace(nextUrl.toString());
+              } catch {
+                // A failed version check must never block normal app usage.
+              } finally {
+                checking = false;
+              }
+            }
+
+            checkPreviewBuild();
+            window.setInterval(checkPreviewBuild, 60000);
+            document.addEventListener("visibilitychange", () => {
+              if (document.visibilityState === "visible") checkPreviewBuild();
+            });
+            window.addEventListener("pageshow", checkPreviewBuild);
+          })();
+          </script>
+          """
+                  preview_guard = preview_guard.strip()
+                  def inject_preview_marker(match):
+                      return (
+                          match.group(1)
+                          + f'\n    <meta name="lifegame-preview-build" content="{build_id}">'
+                          + "\n    "
+                          + preview_guard
+                      )
+
                   content = re.sub(
                       r"(<head\b[^>]*>)",
-                      lambda match: match.group(1) + f'\n    <meta name="lifegame-preview-build" content="{build_id}">',
+                      inject_preview_marker,
                       content,
                       count=1,
                       flags=re.IGNORECASE,
                   )
               file_path.write_text(content, encoding="utf-8")
+
+          index_content = Path("dist/index.html").read_text(encoding="utf-8")
+          required_preview_markers = [
+              'name="lifegame-preview-build"',
+              'cache: "no-store"',
+              'setInterval(checkPreviewBuild, 60000)',
+              'params.set("lg-build", latestBuild)',
+          ]
+          missing_markers = [marker for marker in required_preview_markers if marker not in index_content]
+          if missing_markers:
+              raise SystemExit("Preview refresh guard is incomplete: " + ", ".join(missing_markers))
 
           Path("dist/PREVIEW_BUILD.txt").write_text(
               f"Preview source commit: {source_commit}\n"
