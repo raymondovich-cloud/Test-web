@@ -60,11 +60,11 @@ jobs:
           build_id = os.environ["BUILD_ID"]
           source_commit = os.environ["SOURCE_COMMIT"]
           asset_pattern = re.compile(
-              r'(?P<path>(?:https?:)?//[^"\\'\\s()]+|(?:\\.\\.?/|/)?[^"\\'\\s()=]+)\\.(?P<ext>css|js)(?:\\?[^"\\'\\s()]*)?',
+              r'(?P<path>(?:https?:)?//[^"\'\s()]+|(?:\.\.?/|/)?[^"\'\s()=]+)\.(?P<ext>css|js)(?:\?[^"\'\s()]*)?',
               re.IGNORECASE,
           )
           js_module_specifier = re.compile(
-              r"""(?P<quote>["'])(?P<path>(?:\\.\\.?/|/)[^"'\\s()=]+?)\\.js(?:\\?[^"']*)?(?P=quote)"""
+              r"""(?P<quote>["'])(?P<path>(?:\.\.?/|/)[^"'\s()=]+?)\.js(?:\?[^"']*)?(?P=quote)"""
           )
 
           for file_path in Path("dist").rglob("*"):
