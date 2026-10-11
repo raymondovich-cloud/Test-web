@@ -1,4 +1,4 @@
-# .github/workflows/deploy-pages.yml — Version 1.3
+# .github/workflows/deploy-pages.yml — Version 1.4
 name: LifeGame Preview Deploy
 
 on:
@@ -60,18 +60,27 @@ jobs:
           build_id = os.environ["BUILD_ID"]
           source_commit = os.environ["SOURCE_COMMIT"]
           asset_pattern = re.compile(
-              r'(?P<path>(?:https?:)?//[^"\'\s()]+|(?:\.\.?/|/)?[^"\'\s()=]+)\.(?P<ext>css|js)(?:\?[^"\'\s()]*)?',
+              r'(?P<path>(?:https?:)?//[^"\\'\\s()]+|(?:\\.\\.?/|/)?[^"\\'\\s()=]+)\\.(?P<ext>css|js)(?:\\?[^"\\'\\s()]*)?',
               re.IGNORECASE,
+          )
+          js_module_specifier = re.compile(
+              r"""(?P<quote>["'])(?P<path>(?:\\.\\.?/|/)[^"'\\s()=]+?)\\.js(?:\\?[^"']*)?(?P=quote)"""
           )
 
           for file_path in Path("dist").rglob("*"):
               if not file_path.is_file() or file_path.suffix.lower() not in {".html", ".css", ".js"}:
                   continue
               content = file_path.read_text(encoding="utf-8")
-              content = asset_pattern.sub(
-                  lambda match: f"{match.group('path')}.{match.group('ext').lower()}?v={build_id}",
-                  content,
-              )
+              if file_path.suffix.lower() == ".js":
+                  content = js_module_specifier.sub(
+                      lambda match: f"{match.group('quote')}{match.group('path')}.js?v={build_id}{match.group('quote')}",
+                      content,
+                  )
+              else:
+                  content = asset_pattern.sub(
+                      lambda match: f"{match.group('path')}.{match.group('ext').lower()}?v={build_id}",
+                      content,
+                  )
               if file_path.name == "index.html":
                   preview_guard = r"""
           <script>
@@ -160,6 +169,10 @@ jobs:
               encoding="utf-8",
           )
           PY
+          test -f dist/source/presentation/auth/register.js
+          test -f dist/source/presentation/auth/login.js
+          grep -Fq 'register: "./source/presentation/auth/register.js?v=' dist/web.runtime.js
+          grep -Fq 'login: "./source/presentation/auth/login.js?v=' dist/web.runtime.js
           touch dist/.nojekyll
           cd ..
           mv lifegame-source/dist ./dist
