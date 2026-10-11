@@ -1,4 +1,4 @@
-# .github/workflows/deploy-pages.yml — Version 1.2
+# .github/workflows/deploy-pages.yml — Version 1.3
 name: LifeGame Preview Deploy
 
 on:
@@ -65,7 +65,7 @@ jobs:
           )
 
           for file_path in Path("dist").rglob("*"):
-              if not file_path.is_file() or file_path.suffix.lower() not in {".html", ".css"}:
+              if not file_path.is_file() or file_path.suffix.lower() not in {".html", ".css", ".js"}:
                   continue
               content = file_path.read_text(encoding="utf-8")
               content = asset_pattern.sub(
